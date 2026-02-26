@@ -47,11 +47,6 @@ class MainWindow(QMainWindow):
         self.resize(1250, 850)
 
         self.signals = Signals()
-        self.signals.log.connect(self.append_log)
-        self.signals.progress.connect(self.progress.setValue)
-        self.signals.row.connect(self.add_result_row)
-        self.signals.done.connect(self.on_complete)
-
         self.assessment_service = AssessmentService()
         self.latest_reports: dict[int, Path] = {}
 
@@ -64,6 +59,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._build_output_section())
         layout.addWidget(self._build_execution_section())
         layout.addWidget(self._build_logs_section())
+
+        self.signals.log.connect(self.append_log)
+        self.signals.progress.connect(self.progress.setValue)
+        self.signals.row.connect(self.add_result_row)
+        self.signals.done.connect(self.on_complete)
 
         self.update_preview()
 
