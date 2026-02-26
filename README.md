@@ -136,6 +136,34 @@ pyinstaller --onefile --noconsole --icon=app.ico --name EmailSecurityAssessment 
 
 This executable is standalone and does not require Python on the end-user machine.
 
+## PyInstaller Troubleshooting (Windows)
+
+If you see this error during build:
+
+```text
+PermissionError: [WinError 5] Access is denied: ...\dist\EmailSecurityAssessment.exe
+```
+
+it means `dist/EmailSecurityAssessment.exe` is currently locked by another process (most commonly: the app is still running, an Explorer preview handle is open, or antivirus is scanning the file).
+
+Use this recovery sequence in **PowerShell**:
+
+```powershell
+# 1) Stop a running copy of the app if it is open
+taskkill /IM EmailSecurityAssessment.exe /F
+
+# 2) Remove previous build outputs
+Remove-Item -Recurse -Force .\build, .\dist
+
+# 3) Rebuild from scratch
+pyinstaller --clean --noconfirm --onefile --noconsole --icon=app.ico --name EmailSecurityAssessment --paths src main.py
+```
+
+If the lock persists:
+- Close any Explorer window currently showing `dist\`.
+- Pause real-time antivirus briefly or add your project folder as an exclusion.
+- Re-run PowerShell as Administrator once, then build again.
+
 ## Required PyInstaller Command
 
 ```bash
