@@ -1,27 +1,104 @@
 <!doctype html>
 <html>
-<head><meta charset="utf-8"><title>Email Domain Security Auditor - {{ e.domain }}</title></head>
+<head>
+  <meta charset="utf-8">
+  <title>{{ e.report_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    .header, .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .badge { padding: 4px 10px; border-radius: 999px; color: #fff; font-weight: bold; font-size: 12px; }
+    .critical { background: #b91c1c; }
+    .high { background: #dc2626; }
+    .medium { background: #d97706; }
+    .low { background: #15803d; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+    .divider { border-top: 2px solid #e5e7eb; margin: 24px 0; }
+    .gauge { font-family: monospace; }
+    @media print { body { margin: 12mm; } .card { break-inside: avoid; } }
+  </style>
+</head>
 <body>
-<h1>Email Domain Security Auditor</h1>
-<p><strong>Authorized Use Only:</strong> {{ e.authorized_use_only }}</p>
-<p>Domain: {{ e.domain }} | Timestamp: {{ e.timestamp }} | Version: {{ e.version }}</p>
-<h2>Executive Summary</h2>
-<p>Total Score: {{ e.score.total }}/100</p>
-<ul>
-<li>Auth: {{ e.score.auth }}/50</li>
-<li>Transport: {{ e.score.transport }}/40</li>
-<li>Hardening: {{ e.score.hardening }}/10</li>
-</ul>
-<h3>Top 5 Risks</h3>
-<ol>{% for f in top5 %}<li>[{{ f.severity }}] {{ f.title }} - {{ f.description }}</li>{% endfor %}</ol>
-<h2>Findings</h2>
-<table border="1" cellpadding="4">
-<tr><th>Severity</th><th>Title</th><th>Description</th><th>Evidence</th><th>Remediation</th></tr>
-{% for f in e.findings %}
-<tr><td>{{ f.severity }}</td><td>{{ f.title }}</td><td>{{ f.description }}</td><td>{{ f.evidence }}</td><td>{{ f.remediation }}</td></tr>
-{% endfor %}
-</table>
-<h2>Technical Appendix</h2>
-<pre>{{ e.model_dump_json(indent=2) }}</pre>
+<div class="header">
+  <h1>{{ e.report_name }}</h1>
+  <p><strong>Domain:</strong> {{ e.domain }} | <strong>Generated:</strong> {{ e.timestamp }}</p>
+  <p><strong>Authorized Use Only:</strong> {{ e.authorized_use_only }}</p>
+</div>
+
+<div class="card">
+  <h2>1. Executive Summary</h2>
+  <p>Overall score: <strong>{{ e.score.total }}/100</strong> | Maturity: <strong>{{ e.score.maturity_tier }}</strong></p>
+  <p class="gauge">Score Gauge: [{{ "#" * (e.score.total // 5) }}{{ "-" * (20 - (e.score.total // 5)) }}]</p>
+  <p>This assessment evaluates email authentication and transport protections to estimate spoofing and interception exposure.</p>
+</div>
+
+<div class="card">
+  <h2>2. Technical Findings</h2>
+  <div class="grid">
+    <div>
+      <h3>SPF Analysis</h3>
+      <p>Lookup count: {{ e.spf.lookup_count }} | Qualifier: {{ e.spf.qualifier or "n/a" }}</p>
+      <p>Third-party senders: {{ e.spf.third_party_senders | join(", ") if e.spf.third_party_senders else "None identified" }}</p>
+    </div>
+    <div>
+      <h3>DKIM Status</h3>
+      <p>{{ e.dkim.coverage_note }}</p>
+      <p>Weak selectors: {{ e.dkim.weak_selectors | join(", ") if e.dkim.weak_selectors else "None" }}</p>
+    </div>
+    <div>
+      <h3>DMARC Analysis</h3>
+      <p>Policy: {{ e.dmarc.policy }} | Enforcement: {{ e.dmarc.enforcement_level }} | pct={{ e.dmarc.pct }}</p>
+      <p>rua: {{ "yes" if e.dmarc.rua_present else "no" }}, ruf: {{ "yes" if e.dmarc.ruf_present else "no" }}, sp: {{ e.dmarc.subdomain_policy or "missing" }}</p>
+    </div>
+    <div>
+      <h3>Alignment Overview</h3>
+      <p>{{ e.spf.alignment_note }}</p>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>3. Risk Analysis</h2>
+  <p>Attack surface exposure is primarily driven by policy gaps, weak alignment, and incomplete cryptographic controls.</p>
+  <p>Business impact includes phishing brand abuse, delivery trust degradation, and incident response overhead.</p>
+</div>
+
+<div class="card">
+  <h2>4. Recommendations</h2>
+  <ul>
+    <li><strong>Immediate:</strong> Move DMARC to quarantine/reject, add reporting, and close SPF permerror risks.</li>
+    <li><strong>Medium-term:</strong> Reduce SPF complexity and rotate weak DKIM selectors to stronger keys.</li>
+    <li><strong>Long-term:</strong> Establish governance for periodic selector rotation and policy drift monitoring.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Findings Table</h2>
+  <table>
+    <tr><th>Severity</th><th>Title</th><th>Description</th><th>Evidence</th></tr>
+    {% for f in e.findings %}
+      <tr>
+        <td>
+          <span class="badge {{ f.severity.lower() if f.severity.lower() in ['critical','high','medium','low'] else 'low' }}">{{ f.severity }}</span>
+        </td>
+        <td>{{ f.title }}</td><td>{{ f.description }}</td><td>{{ f.evidence }}</td>
+      </tr>
+    {% endfor %}
+  </table>
+</div>
+
+<div class="divider"></div>
+<div class="card">
+  <h2>5. Technical Appendix</h2>
+  <p><strong>Raw DNS:</strong></p>
+  <pre>{{ e.dns.model_dump_json(indent=2) }}</pre>
+  <p><strong>Resolved SPF includes:</strong> {{ e.spf.include_chain | join("; ") if e.spf.include_chain else "None" }}</p>
+  <p><strong>SPF lookup count:</strong> {{ e.spf.lookup_count }}</p>
+</div>
+
+<footer>
+  <small>Generated {{ e.timestamp }} | {{ e.report_name }}</small>
+</footer>
 </body>
 </html>

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import random
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated
@@ -25,10 +27,17 @@ from audit.tlsrpt import analyze_tlsrpt
 app = typer.Typer(help="Email Domain Security Auditor (defensive).")
 
 
+def _report_name(domain: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
+    return f"EMAIL-SEC-{domain}-{stamp}-{rand}"
+
+
+
 def _scan(domain: str, resolver: str | None, timeout: float, mx_probe: bool) -> EvidencePack:
     client = DNSClient(nameserver=resolver, timeout=timeout)
     dns = client.discover(domain)
-    spf = analyze_spf(dns.spf)
+    spf = analyze_spf(dns.spf, domain, client.query_spf_txt)
     dmarc = analyze_dmarc(dns.dmarc)
     dkim = analyze_dkim(dns.dkim, COMMON_SELECTORS)
     mtasts = analyze_mtasts(dns.mtasts, domain, timeout=timeout)
@@ -46,6 +55,7 @@ def _scan(domain: str, resolver: str | None, timeout: float, mx_probe: bool) -> 
 
     return EvidencePack(
         version=__version__,
+        report_name=_report_name(domain),
         timestamp=datetime.now(timezone.utc),
         domain=domain,
         resolver=(resolver or "system"),
@@ -65,7 +75,9 @@ def _scan(domain: str, resolver: str | None, timeout: float, mx_probe: bool) -> 
 def _write_outputs(evidence: EvidencePack, out_dir: Path, fmt: str, csv_out: bool = False) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     evidence_path = out_dir / "evidence.json"
-    evidence_path.write_text(evidence.model_dump_json(indent=2), encoding="utf-8")
+    payload = evidence.model_dump_json(indent=2)
+    evidence_path.write_text(payload, encoding="utf-8")
+    (out_dir / "report.json").write_text(payload, encoding="utf-8")
 
     if fmt in {"html", "both"}:
         render_html(evidence, out_dir / "report.html")
