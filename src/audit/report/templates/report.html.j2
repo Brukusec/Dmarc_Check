@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Email Domain Security Auditor - {{ e.domain }}</title></head>
+<body>
+<h1>Email Domain Security Auditor</h1>
+<p><strong>Authorized Use Only:</strong> {{ e.authorized_use_only }}</p>
+<p>Domain: {{ e.domain }} | Timestamp: {{ e.timestamp }} | Version: {{ e.version }}</p>
+<h2>Executive Summary</h2>
+<p>Total Score: {{ e.score.total }}/100</p>
+<ul>
+<li>Auth: {{ e.score.auth }}/50</li>
+<li>Transport: {{ e.score.transport }}/40</li>
+<li>Hardening: {{ e.score.hardening }}/10</li>
+</ul>
+<h3>Top 5 Risks</h3>
+<ol>{% for f in top5 %}<li>[{{ f.severity }}] {{ f.title }} - {{ f.description }}</li>{% endfor %}</ol>
+<h2>Findings</h2>
+<table border="1" cellpadding="4">
+<tr><th>Severity</th><th>Title</th><th>Description</th><th>Evidence</th><th>Remediation</th></tr>
+{% for f in e.findings %}
+<tr><td>{{ f.severity }}</td><td>{{ f.title }}</td><td>{{ f.description }}</td><td>{{ f.evidence }}</td><td>{{ f.remediation }}</td></tr>
+{% endfor %}
+</table>
+<h2>Technical Appendix</h2>
+<pre>{{ e.model_dump_json(indent=2) }}</pre>
+</body>
+</html>
