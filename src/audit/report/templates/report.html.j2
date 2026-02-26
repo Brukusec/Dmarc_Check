@@ -74,6 +74,7 @@
       <div>
         <h3>SPF Analysis</h3>
         <p><strong>Full resolved record:</strong> {{ e.spf.record or 'Not found' }}</p>
+        <p><strong>SPF resolved tree:</strong> {{ e.spf.include_chain | join(' → ') if e.spf.include_chain else 'No include chain' }}</p>
         <p><strong>Total DNS lookups:</strong> {{ e.spf.lookup_count }}</p>
         <p><strong>Third-party senders:</strong> {{ e.spf.third_party_senders | join(', ') if e.spf.third_party_senders else 'None identified' }}</p>
         <p><strong>Hardcoded IP ranges count:</strong> {{ hardcoded_ips }}</p>
@@ -140,6 +141,21 @@
       <tr><td>Monitoring & reporting</td><td>{{ e.score.monitoring }}/10</td></tr>
     </table>
     <p><strong>Tier Mapping:</strong> Tier 1 (0–20) Critical Exposure, Tier 2 (21–40) Weak, Tier 3 (41–60) Transitional, Tier 4 (61–80) Mature, Tier 5 (81–100) Hardened.</p>
+  </div>
+
+  <div class="card">
+    <h2>Appendix</h2>
+    <h3>Raw DNS Records</h3>
+    <table>
+      <tr><th>Record Type</th><th>Value</th></tr>
+      <tr><td>SPF</td><td>{{ e.dns.spf | join('<br>') if e.dns.spf else 'None' }}</td></tr>
+      <tr><td>DMARC</td><td>{{ e.dns.dmarc | join('<br>') if e.dns.dmarc else 'None' }}</td></tr>
+      <tr><td>DKIM</td><td>{{ e.dns.dkim if e.dns.dkim else 'None' }}</td></tr>
+    </table>
+    <h3>Resolution Trace</h3>
+    <p>{{ e.spf.resolved_records if e.spf.resolved_records else 'No recursive SPF resolution performed.' }}</p>
+    <h3>Parsing Results</h3>
+    <p>SPF mechanisms: {{ e.spf.mechanisms }} | DMARC tags: {{ e.dmarc.tags }}</p>
   </div>
 
   <div class="footer">{{ e.report_name }} | Generated {{ report_generated }}</div>
