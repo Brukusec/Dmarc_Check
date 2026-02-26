@@ -44,13 +44,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Email Security Posture Assessment")
-        self.resize(1250, 850)
+        self.resize(1300, 900)
 
         self.signals = Signals()
         self.assessment_service = AssessmentService()
         self.latest_reports: dict[int, Path] = {}
 
-    
         root = QWidget()
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
@@ -131,6 +130,11 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.output_browse_button, 0, 3)
         grid.addWidget(QLabel("Report format"), 1, 0)
         grid.addWidget(self.format_combo, 1, 1)
+        grid.addWidget(QLabel("Role selection view filter"), 1, 2)
+        self.role_combo = QComboBox()
+        self.role_combo.addItems(["Executive View", "Technical View", "Red Team View", "Blue Team View"])
+        self.role_combo.currentTextChanged.connect(self.apply_role_filter)
+        grid.addWidget(self.role_combo, 1, 3)
         grid.addWidget(QLabel("Live file-name preview"), 2, 0)
         grid.addWidget(self.preview_label, 2, 1, 1, 3)
         return group
@@ -144,7 +148,10 @@ class MainWindow(QMainWindow):
         self.run_button.clicked.connect(self.run_assessment)
         self.progress = QProgressBar()
         self.progress.setValue(0)
+        self.compare_button = QPushButton("Comparison Mode: Rank Domains")
+        self.compare_button.clicked.connect(self.populate_ranking)
         top_bar.addWidget(self.run_button)
+        top_bar.addWidget(self.compare_button)
         top_bar.addWidget(self.progress)
 
         self.results = QTableWidget(0, 8)
@@ -153,7 +160,14 @@ class MainWindow(QMainWindow):
         )
         self.results.horizontalHeader().setStretchLastSection(True)
 
+        self.ranking = QTableWidget(0, 3)
+        self.ranking.setHorizontalHeaderLabels(["Rank", "Domain", "Score"])
+        self.ranking.horizontalHeader().setStretchLastSection(True)
+
         vbox.addLayout(top_bar)
+        vbox.addWidget(QLabel("Score Ranking Table"))
+        vbox.addWidget(self.ranking)
+        vbox.addWidget(QLabel("Assessment Results"))
         vbox.addWidget(self.results)
         return group
 
@@ -224,6 +238,7 @@ class MainWindow(QMainWindow):
             return
 
         self.results.setRowCount(0)
+        self.ranking.setRowCount(0)
         self.latest_reports.clear()
         self.progress.setValue(0)
         self.run_button.setEnabled(False)
@@ -283,6 +298,37 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _, r=row: self.open_report(r))
         self.results.setCellWidget(row, 7, button)
 
+    def populate_ranking(self) -> None:
+        rows: list[tuple[str, int]] = []
+        for row in range(self.results.rowCount()):
+            domain_item = self.results.item(row, 0)
+            score_item = self.results.item(row, 1)
+            if domain_item and score_item:
+                rows.append((domain_item.text(), int(score_item.text())))
+        rows.sort(key=lambda item: item[1], reverse=True)
+
+        self.ranking.setRowCount(0)
+        for idx, (domain, score) in enumerate(rows, start=1):
+            row = self.ranking.rowCount()
+            self.ranking.insertRow(row)
+            self.ranking.setItem(row, 0, QTableWidgetItem(str(idx)))
+            self.ranking.setItem(row, 1, QTableWidgetItem(domain))
+            self.ranking.setItem(row, 2, QTableWidgetItem(str(score)))
+
+    def apply_role_filter(self) -> None:
+        role = self.role_combo.currentText()
+        if role == "Executive View":
+            hidden = {3, 4, 5}
+        elif role == "Technical View":
+            hidden = set()
+        elif role == "Red Team View":
+            hidden = {4}
+        else:  # Blue Team View
+            hidden = {7}
+
+        for col in range(self.results.columnCount()):
+            self.results.setColumnHidden(col, col in hidden)
+
     def open_report(self, row: int) -> None:
         path = self.latest_reports.get(row)
         if path and path.exists():
@@ -292,8 +338,9 @@ class MainWindow(QMainWindow):
 
     def on_complete(self) -> None:
         self.run_button.setEnabled(True)
+        self.populate_ranking()
+        self.apply_role_filter()
         self.append_log("Assessment run complete.")
-
 
 
 def start() -> None:

@@ -63,6 +63,7 @@ def _report_environment() -> Environment:
 def build_executive_json(evidence: EvidencePack) -> dict:
     control_rows = _control_dashboard(evidence)
     top_actions = _top_actions(evidence)
+    issues = _issue_breakdown(evidence)
     return {
         "report_metadata": {
             "report_name": evidence.report_name,
@@ -92,9 +93,16 @@ def build_executive_json(evidence: EvidencePack) -> dict:
             "key_exposures": _key_exposures(evidence),
             "likelihood": _likelihood(evidence),
             "impact": _impact(evidence),
+            "confidence": _assessment_confidence(evidence),
         },
+        "issues": issues,
+        "stakeholder_views": _stakeholder_views(evidence),
         "remediation_roadmap": _roadmap(evidence),
         "top_priority_actions": top_actions,
+        "maturity_model": {
+            "tier_meaning": _tier_meaning(evidence.score.maturity_tier_level),
+            "tier5_target": "Tier 5 represents reject-level DMARC, strict sender governance, stable DKIM rotation, and continuous monitoring workflows.",
+        },
     }
 
 
@@ -112,6 +120,10 @@ def render_html(evidence: EvidencePack, out_path: Path) -> None:
         hardcoded_ips=evidence.spf.ip4_count + evidence.spf.ip6_count,
         report_generated=evidence.timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"),
         roadmap=_roadmap(evidence),
+        issues=_issue_breakdown(evidence),
+        stakeholder_views=_stakeholder_views(evidence),
+        assessment_confidence=_assessment_confidence(evidence),
+        tier_meaning=_tier_meaning(evidence.score.maturity_tier_level),
         likelihood=_likelihood(evidence),
         impact=_impact(evidence),
     )
@@ -168,16 +180,31 @@ def _top_actions(e: EvidencePack) -> list[dict[str, str]]:
             "action": "Advance DMARC from monitoring to quarantine policy with pct=100 and defined sp= policy.",
             "risk_reduction": "High",
             "complexity": "Medium",
+            "owner": "Security Engineering",
         },
         {
             "action": "Validate universal DKIM signing across all production sender paths and retire weak selectors.",
             "risk_reduction": "High",
             "complexity": "Medium",
+            "owner": "Blue Team",
         },
         {
             "action": "Rationalize SPF includes/IP ranges and enforce -all after sender inventory attestation.",
             "risk_reduction": "Medium",
             "complexity": "Medium",
+            "owner": "Security Architecture",
+        },
+        {
+            "action": "Enable DMARC forensic and aggregate report triage with weekly governance review.",
+            "risk_reduction": "Medium",
+            "complexity": "Low",
+            "owner": "Blue Team",
+        },
+        {
+            "action": "Create approved sender inventory with owner attestations and decommission SLAs.",
+            "risk_reduction": "Medium",
+            "complexity": "Medium",
+            "owner": "Security Architecture",
         },
     ]
     if e.dmarc.policy == "reject":
@@ -192,27 +219,161 @@ def _roadmap(e: EvidencePack) -> list[dict[str, object]]:
             "phase": "PHASE 1 – Immediate Hardening (0–30 days)",
             "items": [
                 {"recommendation": "Move DMARC to quarantine with pct=100.", "risk_reduction": "High", "complexity": "Low"},
-                {"recommendation": "Validate DKIM signing for all active sender services.", "risk_reduction": "High", "complexity": "Medium"},
-                {"recommendation": "Inventory all authorized mail senders and business owners.", "risk_reduction": "High", "complexity": "Medium"},
+                {"recommendation": "Validate DKIM signing for all active sender services.", "risk_reduction": "High", "complexity": "Medium", "owner": "Blue"},
+                {"recommendation": "Inventory all authorized mail senders and business owners.", "risk_reduction": "High", "complexity": "Medium", "owner": "Arch"},
             ],
         },
         {
             "phase": "PHASE 2 – Enforcement (30–60 days)",
             "items": [
-                {"recommendation": "Move DMARC policy to reject after controlled monitoring window.", "risk_reduction": "High", "complexity": "Medium"},
-                {"recommendation": "Replace SPF ~all with -all after validation.", "risk_reduction": "Medium", "complexity": "Low"},
-                {"recommendation": "Remove obsolete SPF IP ranges/includes.", "risk_reduction": "Medium", "complexity": "Medium"},
+                {"recommendation": "Move DMARC policy to reject after controlled monitoring window.", "risk_reduction": "High", "complexity": "Medium", "owner": "Eng"},
+                {"recommendation": "Replace SPF ~all with -all after validation.", "risk_reduction": "Medium", "complexity": "Low", "owner": "Eng"},
+                {"recommendation": "Remove obsolete SPF IP ranges/includes.", "risk_reduction": "Medium", "complexity": "Medium", "owner": "Eng"},
             ],
         },
         {
             "phase": "PHASE 3 – Governance & Monitoring",
             "items": [
-                {"recommendation": "Establish continuous DMARC monitoring with exception workflows.", "risk_reduction": "Medium", "complexity": "Low"},
-                {"recommendation": "Maintain a centralized sender inventory with quarterly ownership attestation.", "risk_reduction": "Medium", "complexity": "Medium"},
-                {"recommendation": "Run quarterly email posture reviews and board-level KPI reporting.", "risk_reduction": "Medium", "complexity": "Low"},
+                {"recommendation": "Establish continuous DMARC monitoring with exception workflows.", "risk_reduction": "Medium", "complexity": "Low", "owner": "Blue"},
+                {"recommendation": "Maintain a centralized sender inventory with quarterly ownership attestation.", "risk_reduction": "Medium", "complexity": "Medium", "owner": "Arch"},
+                {"recommendation": "Run quarterly email posture reviews and board-level KPI reporting.", "risk_reduction": "Medium", "complexity": "Low", "owner": "Arch"},
             ],
         },
     ]
+
+
+def _issue_breakdown(e: EvidencePack) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    if e.dmarc.policy == "none":
+        issues.append(
+            {
+                "id": "ESPA-001",
+                "severity": "High",
+                "control": "DMARC",
+                "description": "DMARC policy is in monitoring mode.",
+                "evidence": f"Record: {e.dmarc.record or 'missing'}",
+                "business_impact": "High spoofing opportunity and elevated BEC probability.",
+                "likelihood": "Likely",
+                "risk_rating": "High",
+                "remediation": "Move policy to quarantine/reject with pct=100 and staged rollout.",
+                "complexity": "Medium",
+                "residual_risk": "Sustained direct-domain impersonation if untreated.",
+            }
+        )
+    if e.spf.softfail:
+        issues.append(
+            {
+                "id": "ESPA-002",
+                "severity": "Moderate",
+                "control": "SPF",
+                "description": "SPF uses softfail (~all) rather than explicit fail (-all).",
+                "evidence": f"SPF: {e.spf.record or 'missing'}",
+                "business_impact": "Inconsistent rejection behavior can permit abuse at receiver discretion.",
+                "likelihood": "Possible",
+                "risk_rating": "Moderate",
+                "remediation": "Complete sender inventory validation and transition to -all.",
+                "complexity": "Low",
+                "residual_risk": "Unauthorized relays may continue to pass in tolerant recipient ecosystems.",
+            }
+        )
+    if len(e.spf.third_party_senders) > 3:
+        issues.append(
+            {
+                "id": "ESPA-003",
+                "severity": "Moderate",
+                "control": "Sender Governance",
+                "description": "Third-party sender footprint is broad and complex.",
+                "evidence": f"Third-party senders: {', '.join(e.spf.third_party_senders)}",
+                "business_impact": "Expanded trust boundary and increased vendor abuse risk.",
+                "likelihood": "Possible",
+                "risk_rating": "Moderate",
+                "remediation": "Implement sender owner attestation and decommission orphaned senders.",
+                "complexity": "Medium",
+                "residual_risk": "Compromised vendors can still impersonate trusted traffic.",
+            }
+        )
+    if not e.dmarc.ruf_present:
+        issues.append(
+            {
+                "id": "ESPA-004",
+                "severity": "Low",
+                "control": "Monitoring",
+                "description": "DMARC forensic reporting (ruf) is not configured.",
+                "evidence": f"DMARC tags: {e.dmarc.tags}",
+                "business_impact": "Reduced visibility into authentication failure details.",
+                "likelihood": "Likely",
+                "risk_rating": "Moderate",
+                "remediation": "Add ruf mailbox or equivalent SOC telemetry intake path.",
+                "complexity": "Low",
+                "residual_risk": "Fine-grained incident triage remains slower.",
+            }
+        )
+    if not e.dmarc.subdomain_policy:
+        issues.append(
+            {
+                "id": "ESPA-005",
+                "severity": "Moderate",
+                "control": "DMARC",
+                "description": "No explicit DMARC subdomain policy (sp=) is declared.",
+                "evidence": f"DMARC tags: {e.dmarc.tags}",
+                "business_impact": "Subdomains may be used for impersonation where controls drift.",
+                "likelihood": "Possible",
+                "risk_rating": "Moderate",
+                "remediation": "Define explicit sp=quarantine/reject aligned with parent policy.",
+                "complexity": "Low",
+                "residual_risk": "Shadow subdomains can remain exploitable.",
+            }
+        )
+    return issues
+
+
+def _stakeholder_views(e: EvidencePack) -> dict[str, list[str]]:
+    return {
+        "red_team": [
+            "External impersonation probability is elevated when DMARC is non-enforcing.",
+            "Third-party sender sprawl increases opportunities for trusted-channel abuse.",
+            "Softfail SPF reduces certainty of receiving-side rejection behavior.",
+        ],
+        "blue_team": [
+            "Track rua/ruf reports daily and route anomalies to phishing response queues.",
+            "Correlate DMARC failures with secure email gateway telemetry for rapid triage.",
+            "Build detection use-cases for new, unapproved sender infrastructure.",
+        ],
+        "security_architecture": [
+            "Current control layering should prioritize enforced DMARC plus strict SPF governance.",
+            "Establish clear ownership per sender service and lifecycle controls.",
+            "Define policy baseline requiring explicit subdomain controls and quarterly review.",
+        ],
+        "security_engineering": [
+            "Sequence hardening as inventory → DKIM coverage → SPF strictness → DMARC reject.",
+            "Automate SPF flattening/validation checks to prevent lookup-limit drift.",
+            "Embed CI guardrails for DNS config changes impacting email authentication.",
+        ],
+        "executive": [
+            f"Current score ({e.score.total}/100) indicates {e.score.risk_level_badge.lower()} residual risk to brand trust.",
+            "Top value lever is completing DMARC enforcement and sender governance standardization.",
+            "Weekly KPI reporting should cover spoofing attempts blocked and policy drift exceptions.",
+        ],
+    }
+
+
+def _assessment_confidence(e: EvidencePack) -> str:
+    if not e.spf.exists and not e.dmarc.exists:
+        return "Medium"
+    if e.spf.lookup_count > 10 or e.dkim.missing:
+        return "Medium"
+    return "High"
+
+
+def _tier_meaning(level: int) -> str:
+    meanings = {
+        1: "Tier 1 indicates critical exposure with limited prevention and high abuse feasibility.",
+        2: "Tier 2 reflects weak controls with inconsistent enforcement and poor resilience.",
+        3: "Tier 3 reflects transitional posture with partial enforcement and governance gaps.",
+        4: "Tier 4 indicates mature implementation with strong baseline control reliability.",
+        5: "Tier 5 indicates hardened posture with strict policy enforcement and continuous monitoring.",
+    }
+    return meanings.get(level, meanings[3])
 
 
 def _likelihood(e: EvidencePack) -> str:
