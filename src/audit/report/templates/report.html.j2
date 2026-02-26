@@ -4,101 +4,145 @@
   <meta charset="utf-8">
   <title>{{ e.report_name }}</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
-    .header, .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .badge { padding: 4px 10px; border-radius: 999px; color: #fff; font-weight: bold; font-size: 12px; }
-    .critical { background: #b91c1c; }
-    .high { background: #dc2626; }
-    .medium { background: #d97706; }
-    .low { background: #15803d; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-    .divider { border-top: 2px solid #e5e7eb; margin: 24px 0; }
-    .gauge { font-family: monospace; }
-    @media print { body { margin: 12mm; } .card { break-inside: avoid; } }
+    :root { --red:#b91c1c; --amber:#b45309; --green:#166534; --slate:#0f172a; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc; }
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 0; color: var(--slate); background: var(--bg); }
+    .page { max-width: 1024px; margin: 0 auto; padding: 24px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:14px; }
+    h1,h2,h3 { margin: 0 0 10px; }
+    h2 { font-size: 20px; border-left: 4px solid #2563eb; padding-left: 8px; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .grid-2 { display:grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap:12px; }
+    .grid-3 { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:12px; }
+    .badge { display:inline-block; padding:4px 10px; border-radius:999px; color:#fff; font-weight:700; font-size:12px; }
+    .critical, .high { background: var(--red); }
+    .moderate, .medium { background: var(--amber); }
+    .low, .hardened { background: var(--green); }
+    .score-bar { height: 16px; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
+    .score-fill { height:100%; background: linear-gradient(90deg,#dc2626,#f59e0b,#16a34a); }
+    table { width:100%; border-collapse: collapse; font-size:14px; }
+    th, td { border:1px solid var(--line); padding:8px; text-align:left; }
+    th { background:#f1f5f9; }
+    .risk-red { background:#fee2e2; }
+    .risk-amber { background:#ffedd5; }
+    .risk-green { background:#dcfce7; }
+    ul { margin:8px 0 0 18px; }
+    .footer { color:var(--muted); font-size:12px; text-align:right; margin-top:18px; }
+    @media print { body { background:#fff; } .page { max-width: none; padding: 10mm; } .card { break-inside: avoid; } }
   </style>
 </head>
 <body>
-<div class="header">
-  <h1>{{ e.report_name }}</h1>
-  <p><strong>Domain:</strong> {{ e.domain }} | <strong>Generated:</strong> {{ e.timestamp }}</p>
-  <p><strong>Authorized Use Only:</strong> {{ e.authorized_use_only }}</p>
-</div>
+<div class="page">
+  <div class="card">
+    <h1>{{ e.report_name }}</h1>
+    <p class="meta"><strong>Domain Assessed:</strong> {{ e.domain }} | <strong>Assessment Date:</strong> {{ e.timestamp.date() }} | <strong>Generation Timestamp:</strong> {{ report_generated }}</p>
+    <div class="grid-3">
+      <div><strong>Overall Security Score</strong><br>{{ e.score.total }}/100</div>
+      <div><strong>Maturity Tier</strong><br>{{ e.score.maturity_tier }}</div>
+      <div><strong>Risk Level</strong><br><span class="badge {{ e.score.risk_level_badge.lower() }}">{{ e.score.risk_level_badge }}</span></div>
+    </div>
+    <p style="margin-top:10px"><strong>Score Indicator</strong></p>
+    <div class="score-bar"><div class="score-fill" style="width: {{ e.score.total }}%"></div></div>
+  </div>
 
-<div class="card">
-  <h2>1. Executive Summary</h2>
-  <p>Overall score: <strong>{{ e.score.total }}/100</strong> | Maturity: <strong>{{ e.score.maturity_tier }}</strong></p>
-  <p class="gauge">Score Gauge: [{{ "#" * (e.score.total // 5) }}{{ "-" * (20 - (e.score.total // 5)) }}]</p>
-  <p>This assessment evaluates email authentication and transport protections to estimate spoofing and interception exposure.</p>
-</div>
+  <div class="card">
+    <h2>Executive Summary</h2>
+    <p><strong>Overall Posture Statement:</strong> The assessed domain currently sits in <strong>{{ risk_trend }}</strong> maturity with a score of <strong>{{ e.score.total }}/100</strong>. {% if e.dmarc.policy == 'reject' and e.spf.hardfail %}The domain demonstrates strong resistance to spoofing through enforced authentication policies.{% else %}The domain is not yet fully resistant to spoofing because enforcement and sender authentication controls remain partially implemented.{% endif %}</p>
+    <p><strong>Enforcement Status:</strong> DMARC is configured as <strong>p={{ e.dmarc.policy if e.dmarc.exists else 'missing' }}</strong> with enforcement classification <strong>{{ e.dmarc.enforcement_level }}</strong>. SPF policy is <strong>{{ spf_policy }}</strong>, and DKIM status is <strong>{{ 'missing' if e.dkim.missing else 'present' }}</strong>.</p>
+    <h3>Key Exposure Findings</h3>
+    <ul>{% for item in key_exposures %}<li>{{ item }}</li>{% endfor %}</ul>
+    <h3>Business Risk Exposure</h3>
+    <ul>{% for impact_item in business_impacts %}<li>{{ impact_item }}</li>{% endfor %}</ul>
+    <h3>Executive Recommendation Summary (Top 3)</h3>
+    <ul>{% for action in top_actions %}<li>{{ action.action }} <em>(Risk reduction: {{ action.risk_reduction }})</em></li>{% endfor %}</ul>
+  </div>
 
-<div class="card">
-  <h2>2. Technical Findings</h2>
-  <div class="grid">
-    <div>
-      <h3>SPF Analysis</h3>
-      <p>Lookup count: {{ e.spf.lookup_count }} | Qualifier: {{ e.spf.qualifier or "n/a" }}</p>
-      <p>Third-party senders: {{ e.spf.third_party_senders | join(", ") if e.spf.third_party_senders else "None identified" }}</p>
-    </div>
-    <div>
-      <h3>DKIM Status</h3>
-      <p>{{ e.dkim.coverage_note }}</p>
-      <p>Weak selectors: {{ e.dkim.weak_selectors | join(", ") if e.dkim.weak_selectors else "None" }}</p>
-    </div>
-    <div>
-      <h3>DMARC Analysis</h3>
-      <p>Policy: {{ e.dmarc.policy }} | Enforcement: {{ e.dmarc.enforcement_level }} | pct={{ e.dmarc.pct }}</p>
-      <p>rua: {{ "yes" if e.dmarc.rua_present else "no" }}, ruf: {{ "yes" if e.dmarc.ruf_present else "no" }}, sp: {{ e.dmarc.subdomain_policy or "missing" }}</p>
-    </div>
-    <div>
-      <h3>Alignment Overview</h3>
-      <p>{{ e.spf.alignment_note }}</p>
+  <div class="card">
+    <h2>Security Posture Dashboard</h2>
+    <table>
+      <tr><th>Control Area</th><th>Status</th><th>Risk Level</th><th>Maturity</th></tr>
+      {% for row in dashboard_rows %}
+      <tr class="{% if row.risk_level in ['Critical','High'] %}risk-red{% elif row.risk_level == 'Moderate' %}risk-amber{% else %}risk-green{% endif %}">
+        <td>{{ row.control_area }}</td><td>{{ row.status }}</td><td>{{ row.risk_level }}</td><td>{{ row.maturity }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Technical Analysis</h2>
+    <div class="grid-2">
+      <div>
+        <h3>SPF Analysis</h3>
+        <p><strong>Full resolved record:</strong> {{ e.spf.record or 'Not found' }}</p>
+        <p><strong>Total DNS lookups:</strong> {{ e.spf.lookup_count }}</p>
+        <p><strong>Third-party senders:</strong> {{ e.spf.third_party_senders | join(', ') if e.spf.third_party_senders else 'None identified' }}</p>
+        <p><strong>Hardcoded IP ranges count:</strong> {{ hardcoded_ips }}</p>
+        <p><strong>Policy type:</strong> {{ spf_policy }}</p>
+      </div>
+      <div>
+        <h3>DKIM Analysis</h3>
+        <p><strong>Selector detection:</strong> {{ e.dkim.selectors | length }} selectors tested.</p>
+        <p><strong>Signing status:</strong> {{ 'Missing / not discoverable' if e.dkim.missing else 'Selectors present' }}</p>
+        <p><strong>Alignment with From domain:</strong> Alignment should be validated in downstream DMARC aggregate telemetry.</p>
+      </div>
+      <div>
+        <h3>DMARC Analysis</h3>
+        <p><strong>p= value:</strong> {{ e.dmarc.policy if e.dmarc.exists else 'missing' }} | <strong>pct:</strong> {{ e.dmarc.pct }}</p>
+        <p><strong>rua/ruf:</strong> rua={{ 'configured' if e.dmarc.rua_present else 'missing' }}, ruf={{ 'configured' if e.dmarc.ruf_present else 'missing' }}</p>
+        <p><strong>sp= subdomain policy:</strong> {{ e.dmarc.subdomain_policy or 'missing' }}</p>
+        <p><strong>Enforcement classification:</strong> {{ e.dmarc.enforcement_level }}</p>
+      </div>
+      <div>
+        <h3>Alignment Review</h3>
+        <p><strong>SPF alignment:</strong> {{ e.spf.alignment_note }}</p>
+        <p><strong>DKIM alignment:</strong> Requires pass + aligned d= with From domain in production telemetry.</p>
+        <p><strong>Risk if alignment fails:</strong> Legitimate messages can fail policy while spoofed campaigns may evade strict identity assurance.</p>
+      </div>
     </div>
   </div>
-</div>
 
-<div class="card">
-  <h2>3. Risk Analysis</h2>
-  <p>Attack surface exposure is primarily driven by policy gaps, weak alignment, and incomplete cryptographic controls.</p>
-  <p>Business impact includes phishing brand abuse, delivery trust degradation, and incident response overhead.</p>
-</div>
+  <div class="card">
+    <h2>Attack Surface & Impact Analysis</h2>
+    <ul>
+      <li>Insufficient enforcement leaves open pathways for direct-domain spoofing and trusted-channel abuse.</li>
+      <li>Softfail SPF configurations can increase abuse probability by permitting broader sender acceptance behavior.</li>
+      <li>Each additional third-party sender expands credential, integration, and governance attack surface.</li>
+    </ul>
+    <table>
+      <tr><th>Risk Matrix</th><th>Rating</th></tr>
+      <tr><td>Likelihood</td><td>{{ likelihood }}</td></tr>
+      <tr><td>Impact</td><td>{{ impact }}</td></tr>
+    </table>
+  </div>
 
-<div class="card">
-  <h2>4. Recommendations</h2>
-  <ul>
-    <li><strong>Immediate:</strong> Move DMARC to quarantine/reject, add reporting, and close SPF permerror risks.</li>
-    <li><strong>Medium-term:</strong> Reduce SPF complexity and rotate weak DKIM selectors to stronger keys.</li>
-    <li><strong>Long-term:</strong> Establish governance for periodic selector rotation and policy drift monitoring.</li>
-  </ul>
-</div>
-
-<div class="card">
-  <h2>Findings Table</h2>
-  <table>
-    <tr><th>Severity</th><th>Title</th><th>Description</th><th>Evidence</th></tr>
-    {% for f in e.findings %}
-      <tr>
-        <td>
-          <span class="badge {{ f.severity.lower() if f.severity.lower() in ['critical','high','medium','low'] else 'low' }}">{{ f.severity }}</span>
-        </td>
-        <td>{{ f.title }}</td><td>{{ f.description }}</td><td>{{ f.evidence }}</td>
-      </tr>
+  <div class="card">
+    <h2>Remediation Roadmap</h2>
+    {% for phase in roadmap %}
+      <h3>{{ phase["phase"] }}</h3>
+      <table>
+        <tr><th>Recommendation</th><th>Risk Reduction</th><th>Implementation Complexity</th></tr>
+        {% for item in phase["items"] %}
+          <tr><td>{{ item.recommendation }}</td><td>{{ item.risk_reduction }}</td><td>{{ item.complexity }}</td></tr>
+        {% endfor %}
+      </table>
     {% endfor %}
-  </table>
-</div>
+  </div>
 
-<div class="divider"></div>
-<div class="card">
-  <h2>5. Technical Appendix</h2>
-  <p><strong>Raw DNS:</strong></p>
-  <pre>{{ e.dns.model_dump_json(indent=2) }}</pre>
-  <p><strong>Resolved SPF includes:</strong> {{ e.spf.include_chain | join("; ") if e.spf.include_chain else "None" }}</p>
-  <p><strong>SPF lookup count:</strong> {{ e.spf.lookup_count }}</p>
-</div>
+  <div class="card">
+    <h2>Maturity Scoring Model</h2>
+    <p>Score 0–100 weighted controls: DMARC enforcement (30%), DKIM presence & alignment (25%), SPF strength (20%), Sender inventory hygiene (15%), Monitoring & reporting (10%).</p>
+    <table>
+      <tr><th>Weighted Control</th><th>Contribution</th></tr>
+      <tr><td>DMARC enforcement</td><td>{{ e.score.dmarc_enforcement }}/30</td></tr>
+      <tr><td>DKIM presence & alignment</td><td>{{ e.score.dkim_alignment }}/25</td></tr>
+      <tr><td>SPF strength</td><td>{{ e.score.spf_strength }}/20</td></tr>
+      <tr><td>Sender inventory hygiene</td><td>{{ e.score.sender_hygiene }}/15</td></tr>
+      <tr><td>Monitoring & reporting</td><td>{{ e.score.monitoring }}/10</td></tr>
+    </table>
+    <p><strong>Tier Mapping:</strong> Tier 1 (0–20) Critical Exposure, Tier 2 (21–40) Weak, Tier 3 (41–60) Transitional, Tier 4 (61–80) Mature, Tier 5 (81–100) Hardened.</p>
+  </div>
 
-<footer>
-  <small>Generated {{ e.timestamp }} | {{ e.report_name }}</small>
-</footer>
+  <div class="footer">{{ e.report_name }} | Generated {{ report_generated }}</div>
+</div>
 </body>
 </html>

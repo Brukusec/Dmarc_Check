@@ -7,9 +7,177 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from audit.models import EvidencePack
 
 
+def build_executive_json(evidence: EvidencePack) -> dict:
+    control_rows = _control_dashboard(evidence)
+    top_actions = _top_actions(evidence)
+    return {
+        "report_metadata": {
+            "report_name": evidence.report_name,
+            "domain": evidence.domain,
+            "assessment_date": evidence.timestamp.date().isoformat(),
+            "generated_at": evidence.timestamp.isoformat(),
+        },
+        "posture": {
+            "overall_score": evidence.score.total,
+            "maturity_tier": evidence.score.maturity_tier,
+            "maturity_level": evidence.score.maturity_tier_level,
+            "risk_level": evidence.score.risk_level_badge,
+            "risk_trend_classification": _risk_trend(evidence.score.maturity_tier_level),
+            "is_spoofing_resistant": evidence.dmarc.policy == "reject" and evidence.spf.hardfail,
+            "enforcement_status": evidence.dmarc.enforcement_level,
+        },
+        "dashboard": control_rows,
+        "weighted_scoring": {
+            "dmarc_enforcement_30": evidence.score.dmarc_enforcement,
+            "dkim_presence_alignment_25": evidence.score.dkim_alignment,
+            "spf_strength_20": evidence.score.spf_strength,
+            "sender_inventory_hygiene_15": evidence.score.sender_hygiene,
+            "monitoring_reporting_10": evidence.score.monitoring,
+        },
+        "risk_exposure": {
+            "business_impacts": _business_impacts(evidence),
+            "key_exposures": _key_exposures(evidence),
+            "likelihood": _likelihood(evidence),
+            "impact": _impact(evidence),
+        },
+        "remediation_roadmap": _roadmap(evidence),
+        "top_priority_actions": top_actions,
+    }
+
+
 def render_html(evidence: EvidencePack, out_path: Path) -> None:
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(template_dir), autoescape=select_autoescape())
     tpl = env.get_template("report.html.j2")
-    out = tpl.render(e=evidence, top5=evidence.findings[:5])
+    out = tpl.render(
+        e=evidence,
+        dashboard_rows=_control_dashboard(evidence),
+        key_exposures=_key_exposures(evidence),
+        business_impacts=_business_impacts(evidence),
+        risk_trend=_risk_trend(evidence.score.maturity_tier_level),
+        top_actions=_top_actions(evidence),
+        spf_policy=("-all" if evidence.spf.hardfail else ("~all" if evidence.spf.softfail else "other/unknown")),
+        hardcoded_ips=evidence.spf.ip4_count + evidence.spf.ip6_count,
+        report_generated=evidence.timestamp.strftime("%Y-%m-%d %H:%M:%S %Z"),
+        roadmap=_roadmap(evidence),
+        likelihood=_likelihood(evidence),
+        impact=_impact(evidence),
+    )
     out_path.write_text(out, encoding="utf-8")
+
+
+def _risk_trend(maturity_level: int) -> str:
+    mapping = {1: "Early-stage control", 2: "Early-stage control", 3: "Transitional", 4: "Mature", 5: "Hardened"}
+    return mapping.get(maturity_level, "Transitional")
+
+
+def _key_exposures(e: EvidencePack) -> list[str]:
+    exposures: list[str] = []
+    if e.dmarc.policy == "none":
+        exposures.append("Weak DMARC enforcement (p=none) leaves spoofed messages in monitoring mode.")
+    if e.spf.softfail:
+        exposures.append("SPF softfail (~all) can increase acceptance of unauthorized sending infrastructure.")
+    if len(e.spf.third_party_senders) > 3:
+        exposures.append("Excessive third-party senders broaden trust boundaries and governance overhead.")
+    if e.dkim.missing:
+        exposures.append("Missing DKIM coverage reduces non-repudiation and impairs DMARC alignment outcomes.")
+    if e.spf.lookup_count > 10:
+        exposures.append("Overly complex SPF record risks permerror and operational fragility.")
+    return exposures or ["No major exposure patterns identified from current telemetry."]
+
+
+def _business_impacts(e: EvidencePack) -> list[str]:
+    impacts = [
+        "Brand impersonation and customer phishing risk if enforcement remains partial.",
+        "Business Email Compromise (BEC) exposure through spoofed executive/vendor identities.",
+        "Vendor payment fraud and invoice redirection risk in accounts payable workflows.",
+        "Regulatory and audit pressure due to weak anti-spoofing policy governance.",
+        "Customer trust erosion following abusive email campaigns using lookalike identity.",
+    ]
+    if e.score.total <= 60:
+        impacts.append("Elevated financial fraud exposure due to insufficient sender authentication controls.")
+    return impacts
+
+
+def _control_dashboard(e: EvidencePack) -> list[dict[str, str]]:
+    dmarc_status = f"p={e.dmarc.policy}" if e.dmarc.exists else "Missing"
+    return [
+        {"control_area": "SPF", "status": "Softfail" if e.spf.softfail else ("Hardened" if e.spf.hardfail else "Present"), "risk_level": "Moderate" if e.spf.softfail else "Low", "maturity": f"{4 if e.spf.hardfail else 3}/5"},
+        {"control_area": "DKIM", "status": "Missing" if e.dkim.missing else "Enabled", "risk_level": "High" if e.dkim.missing else "Low", "maturity": f"{1 if e.dkim.missing else 4}/5"},
+        {"control_area": "DMARC", "status": dmarc_status, "risk_level": "High" if e.dmarc.policy == "none" else "Low", "maturity": f"{2 if e.dmarc.policy == 'none' else 5}/5"},
+        {"control_area": "Alignment", "status": "Partial" if "not" in e.spf.alignment_note.lower() else "Aligned", "risk_level": "Moderate", "maturity": "3/5"},
+        {"control_area": "Monitoring", "status": "Enabled" if e.dmarc.reporting_enabled else "Partial", "risk_level": "Low" if e.dmarc.reporting_enabled else "Moderate", "maturity": f"{4 if e.dmarc.reporting_enabled else 2}/5"},
+    ]
+
+
+def _top_actions(e: EvidencePack) -> list[dict[str, str]]:
+    actions = [
+        {
+            "action": "Advance DMARC from monitoring to quarantine policy with pct=100 and defined sp= policy.",
+            "risk_reduction": "High",
+            "complexity": "Medium",
+        },
+        {
+            "action": "Validate universal DKIM signing across all production sender paths and retire weak selectors.",
+            "risk_reduction": "High",
+            "complexity": "Medium",
+        },
+        {
+            "action": "Rationalize SPF includes/IP ranges and enforce -all after sender inventory attestation.",
+            "risk_reduction": "Medium",
+            "complexity": "Medium",
+        },
+    ]
+    if e.dmarc.policy == "reject":
+        actions[0]["action"] = "Maintain DMARC reject policy with quarterly exception governance and drift monitoring."
+    return actions
+
+
+def _roadmap(e: EvidencePack) -> list[dict[str, object]]:
+    _ = e
+    return [
+        {
+            "phase": "PHASE 1 – Immediate Hardening (0–30 days)",
+            "items": [
+                {"recommendation": "Move DMARC to quarantine with pct=100.", "risk_reduction": "High", "complexity": "Low"},
+                {"recommendation": "Validate DKIM signing for all active sender services.", "risk_reduction": "High", "complexity": "Medium"},
+                {"recommendation": "Inventory all authorized mail senders and business owners.", "risk_reduction": "High", "complexity": "Medium"},
+            ],
+        },
+        {
+            "phase": "PHASE 2 – Enforcement (30–60 days)",
+            "items": [
+                {"recommendation": "Move DMARC policy to reject after controlled monitoring window.", "risk_reduction": "High", "complexity": "Medium"},
+                {"recommendation": "Replace SPF ~all with -all after validation.", "risk_reduction": "Medium", "complexity": "Low"},
+                {"recommendation": "Remove obsolete SPF IP ranges/includes.", "risk_reduction": "Medium", "complexity": "Medium"},
+            ],
+        },
+        {
+            "phase": "PHASE 3 – Governance & Monitoring",
+            "items": [
+                {"recommendation": "Establish continuous DMARC monitoring with exception workflows.", "risk_reduction": "Medium", "complexity": "Low"},
+                {"recommendation": "Maintain a centralized sender inventory with quarterly ownership attestation.", "risk_reduction": "Medium", "complexity": "Medium"},
+                {"recommendation": "Run quarterly email posture reviews and board-level KPI reporting.", "risk_reduction": "Medium", "complexity": "Low"},
+            ],
+        },
+    ]
+
+
+def _likelihood(e: EvidencePack) -> str:
+    if e.score.total <= 40:
+        return "Highly Likely"
+    if e.score.total <= 60:
+        return "Likely"
+    if e.score.total <= 80:
+        return "Possible"
+    return "Unlikely"
+
+
+def _impact(e: EvidencePack) -> str:
+    if e.score.total <= 40:
+        return "Severe"
+    if e.score.total <= 60:
+        return "High"
+    if e.score.total <= 80:
+        return "Medium"
+    return "Low"

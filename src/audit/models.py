@@ -120,11 +120,18 @@ class TLSRPTAnalysis(BaseModel):
 
 
 class ScoreBreakdown(BaseModel):
+    dmarc_enforcement: int = 0
+    dkim_alignment: int = 0
+    spf_strength: int = 0
+    sender_hygiene: int = 0
+    monitoring: int = 0
     auth: int = 0
     transport: int = 0
     hardening: int = 0
     total: int
+    maturity_tier_level: int = 1
     maturity_tier: str
+    risk_level_badge: str = "Critical"
     penalty_details: list[str] = Field(default_factory=list)
 
 
