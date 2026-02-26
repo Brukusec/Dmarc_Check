@@ -127,7 +127,10 @@ def render_html(evidence: EvidencePack, out_path: Path) -> None:
         likelihood=_likelihood(evidence),
         impact=_impact(evidence),
     )
-    out_path.write_text(out, encoding="utf-8")
+    # Some execution paths can pass escaped newline sequences ("\\n") in
+    # metadata fields. Normalize them so the final report renders with real
+    # line breaks instead of literal backslash characters.
+    out_path.write_text(out.replace("\\n", "\n"), encoding="utf-8")
 
 
 def _risk_trend(maturity_level: int) -> str:
