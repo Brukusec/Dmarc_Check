@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import random
 import string
 from datetime import datetime, timezone
@@ -18,7 +19,7 @@ from audit.dns import COMMON_SELECTORS, DNSClient
 from audit.findings import build_findings
 from audit.models import EvidencePack, ScoreBreakdown
 from audit.mtasts import analyze_mtasts
-from audit.report.renderer import render_html
+from audit.report.renderer import build_executive_json, render_html
 from audit.scoring import score
 from audit.smtp_probe import probe_mx
 from audit.spf import analyze_spf
@@ -78,6 +79,10 @@ def _write_outputs(evidence: EvidencePack, out_dir: Path, fmt: str, csv_out: boo
     payload = evidence.model_dump_json(indent=2)
     evidence_path.write_text(payload, encoding="utf-8")
     (out_dir / "report.json").write_text(payload, encoding="utf-8")
+    executive_payload = build_executive_json(evidence)
+    (out_dir / "report_structured.json").write_text(
+        json.dumps(executive_payload, indent=2), encoding="utf-8"
+    )
 
     if fmt in {"html", "both"}:
         render_html(evidence, out_dir / "report.html")
