@@ -1,10 +1,63 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
+from jinja2 import DictLoader, Environment, FileSystemLoader, select_autoescape
 
 from audit.models import EvidencePack
+
+FALLBACK_REPORT_TEMPLATE = """<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\">
+  <title>{{ e.report_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }
+    .meta { color: #475569; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; }
+    th { background: #e2e8f0; }
+  </style>
+</head>
+<body>
+  <h1>{{ e.report_name }}</h1>
+  <p class=\"meta\">Domain: {{ e.domain }} | Generated: {{ report_generated }}</p>
+  <h2>Score Summary</h2>
+  <p><strong>Overall Security Score:</strong> {{ e.score.total }}/100 ({{ e.score.maturity_tier }})</p>
+  <h2>Control Dashboard</h2>
+  <table>
+    <tr><th>Control Area</th><th>Status</th><th>Risk Level</th><th>Maturity</th></tr>
+    {% for row in dashboard_rows %}
+    <tr>
+      <td>{{ row.control_area }}</td><td>{{ row.status }}</td><td>{{ row.risk_level }}</td><td>{{ row.maturity }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
+"""
+
+
+def _report_environment() -> Environment:
+    template_dirs = [Path(__file__).parent / "templates"]
+    if getattr(sys, "_MEIPASS", None):
+        meipass = Path(sys._MEIPASS)
+        template_dirs.extend(
+            [
+                meipass / "audit" / "report" / "templates",
+                meipass / "report" / "templates",
+            ]
+        )
+
+    existing_dirs = [str(path) for path in template_dirs if path.exists()]
+    if existing_dirs:
+        return Environment(loader=FileSystemLoader(existing_dirs), autoescape=select_autoescape())
+
+    return Environment(
+        loader=DictLoader({"report.html.j2": FALLBACK_REPORT_TEMPLATE}),
+        autoescape=select_autoescape(),
+    )
 
 
 def build_executive_json(evidence: EvidencePack) -> dict:
@@ -46,8 +99,7 @@ def build_executive_json(evidence: EvidencePack) -> dict:
 
 
 def render_html(evidence: EvidencePack, out_path: Path) -> None:
-    template_dir = Path(__file__).parent / "templates"
-    env = Environment(loader=FileSystemLoader(template_dir), autoescape=select_autoescape())
+    env = _report_environment()
     tpl = env.get_template("report.html.j2")
     out = tpl.render(
         e=evidence,
