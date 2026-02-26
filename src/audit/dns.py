@@ -55,6 +55,10 @@ class DNSClient:
         ):
             return []
 
+
+    def query_spf_txt(self, domain: str) -> list[str]:
+        return [r for r in self._query_txt(domain) if r.lower().startswith("v=spf1")]
+
     def discover(self, domain: str) -> DnsSnapshot:
         raw: dict[str, Any] = {}
         mx_records: list[MXRecord] = []
@@ -91,7 +95,7 @@ class DNSClient:
                 )
             )
 
-        spf = [r for r in self._query_txt(domain) if r.lower().startswith("v=spf1")]
+        spf = self.query_spf_txt(domain)
         dmarc = [r for r in self._query_txt(f"_dmarc.{domain}") if r.lower().startswith("v=dmarc1")]
         bimi = self._query_txt(f"default._bimi.{domain}")
         mtasts = [

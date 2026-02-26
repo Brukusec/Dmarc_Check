@@ -49,6 +49,17 @@ class SPFAnalysis(BaseModel):
     lookup_count: int = 0
     qualifier: str | None = None
     mechanisms: dict[str, int] = Field(default_factory=dict)
+    resolved_records: dict[str, str] = Field(default_factory=dict)
+    include_chain: list[str] = Field(default_factory=list)
+    include_domains: list[str] = Field(default_factory=list)
+    redirect_domain: str | None = None
+    softfail: bool = False
+    hardfail: bool = False
+    permerror: bool = False
+    ip4_count: int = 0
+    ip6_count: int = 0
+    third_party_senders: list[str] = Field(default_factory=list)
+    alignment_note: str = "SPF alignment not evaluated"
     risks: list[str] = Field(default_factory=list)
 
 
@@ -57,6 +68,12 @@ class DMARCAnalysis(BaseModel):
     record: str | None = None
     tags: dict[str, str] = Field(default_factory=dict)
     enforcement: str = "none"
+    policy: str = "none"
+    pct: int = 100
+    subdomain_policy: str | None = None
+    rua_present: bool = False
+    ruf_present: bool = False
+    enforcement_level: str = "Monitoring"
     reporting_enabled: bool = False
     risks: list[str] = Field(default_factory=list)
 
@@ -71,6 +88,8 @@ class DKIMSelectorResult(BaseModel):
 class DKIMAnalysis(BaseModel):
     selectors: list[DKIMSelectorResult] = Field(default_factory=list)
     coverage_note: str = "unknown"
+    missing: bool = False
+    weak_selectors: list[str] = Field(default_factory=list)
 
 
 class SMTPProbeResult(BaseModel):
@@ -101,10 +120,12 @@ class TLSRPTAnalysis(BaseModel):
 
 
 class ScoreBreakdown(BaseModel):
-    auth: int
-    transport: int
-    hardening: int
+    auth: int = 0
+    transport: int = 0
+    hardening: int = 0
     total: int
+    maturity_tier: str
+    penalty_details: list[str] = Field(default_factory=list)
 
 
 class EvidencePack(BaseModel):
@@ -114,6 +135,7 @@ class EvidencePack(BaseModel):
         "Authorized Use Only: Defensive assessment for systems you own or are explicitly authorized to test."
     )
     safe_mode: bool = True
+    report_name: str
     timestamp: datetime
     domain: str
     resolver: str

@@ -67,7 +67,7 @@ def build_findings(
             )
         )
 
-    if len([s for s in dkim.selectors if s.present]) == 0:
+    if dkim.missing:
         findings.append(
             _f(
                 "DKIM_UNKNOWN",
@@ -76,6 +76,19 @@ def build_findings(
                 dkim.coverage_note,
                 "common selectors checked",
                 "Confirm active selectors and rotate keys.",
+            )
+        )
+
+
+    for selector in dkim.weak_selectors:
+        findings.append(
+            _f(
+                "DKIM_WEAK_SELECTOR",
+                "Medium",
+                "Weak DKIM selector detected",
+                f"Selector {selector} appears to use a weak RSA key length.",
+                selector,
+                "Rotate to 2048-bit (or stronger) DKIM keys.",
             )
         )
 
