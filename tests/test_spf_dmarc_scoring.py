@@ -36,6 +36,9 @@ def test_scoring_bounds_and_tier():
     dkim = analyze_dkim({}, ["default"])
     sc = score(spf, dmarc, dkim, MTASTSAnalysis(), TLSRPTAnalysis(), 0.0, False)
     assert 0 <= int(sc["total"]) <= 100
+    assert 0 <= int(sc["auth"]) <= 50
+    assert 0 <= int(sc["transport"]) <= 40
+    assert 0 <= int(sc["hardening"]) <= 10
     tier_level, tier_label = maturity_tier(int(sc["total"]))
     assert tier_level in {1, 2, 3, 4, 5}
     assert tier_label in {

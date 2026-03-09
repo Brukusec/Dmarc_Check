@@ -51,7 +51,7 @@ def _scan(domain: str, resolver: str | None, timeout: float, mx_probe: bool) -> 
     else:
         ratio = 0.0
 
-    findings = build_findings(spf, dmarc, dkim, mtasts, tlsrpt, ratio)
+    findings = build_findings(spf, dmarc, dkim, mtasts, tlsrpt, ratio, smtp_results)
     sc = score(spf, dmarc, dkim, mtasts, tlsrpt, ratio, bool(bimi["present"]))
 
     return EvidencePack(
