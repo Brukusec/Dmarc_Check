@@ -19,6 +19,9 @@ It does **not** provide offensive exploitation or phishing enablement.
   - `report_{domain}_{YYYYMMDD}.html`
   - lowercased/sanitized domain filename handling for Windows
 - Optional JSON companion outputs
+- Batch aggregate outputs:
+  - `full_report.json` with all scanned domains, score summary, and aggregated issues
+  - `all_issues.csv` with every finding row across all domains
 - Live run progress, table results, and execution log panel
 - Windows executable packaging via PyInstaller (`--onefile --noconsole`)
 
