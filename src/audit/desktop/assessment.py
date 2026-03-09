@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 from audit import __version__
+from audit.aggregate import write_aggregated_issues_csv, write_full_report
 from audit.bimi import analyze_bimi
 from audit.dkim import analyze_dkim
 from audit.dmarc import analyze_dmarc
@@ -34,6 +35,7 @@ class DomainAssessmentResult:
     status: str
     report_path: Path | None = None
     json_path: Path | None = None
+    evidence: EvidencePack | None = None
     error: str | None = None
 
 
@@ -66,6 +68,7 @@ class AssessmentService:
     ) -> list[DomainAssessmentResult]:
         output_dir.mkdir(parents=True, exist_ok=True)
         results: list[DomainAssessmentResult] = []
+        evidences: list[EvidencePack] = []
 
         total = max(1, len(domains))
         for idx, domain in enumerate(domains, start=1):
@@ -94,7 +97,17 @@ class AssessmentService:
                     error=str(exc),
                 )
             results.append(result)
+            if result.evidence is not None:
+                evidences.append(result.evidence)
             progress(int((idx / total) * 100))
+
+        if evidences:
+            full_report_path = output_dir / "full_report.json"
+            issues_csv_path = output_dir / "all_issues.csv"
+            write_full_report(evidences, full_report_path)
+            write_aggregated_issues_csv(evidences, issues_csv_path)
+            log(f"Aggregate full report written: {full_report_path}")
+            log(f"Aggregate issues CSV written: {issues_csv_path}")
 
         return results
 
@@ -171,4 +184,5 @@ class AssessmentService:
             status="Completed",
             report_path=html_path,
             json_path=json_path,
+            evidence=evidence,
         )
