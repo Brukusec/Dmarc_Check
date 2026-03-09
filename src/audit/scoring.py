@@ -14,142 +14,145 @@ def score(
 ) -> dict[str, int | str | list[str]]:
     penalties: list[str] = []
 
-    dmarc_enforcement = _dmarc_enforcement_score(dmarc, penalties)
-    dkim_alignment = _dkim_alignment_score(dkim, penalties)
-    spf_strength = _spf_strength_score(spf, penalties)
-    sender_hygiene = _sender_hygiene_score(spf, penalties)
-    monitoring = _monitoring_score(dmarc, tlsrpt, mtasts, smtp_starttls_ratio, bimi_present, penalties)
+    auth = _auth_score(spf, dmarc, dkim, penalties)
+    transport = _transport_score(dmarc, tlsrpt, mtasts, smtp_starttls_ratio, penalties)
+    hardening = _hardening_score(spf, bimi_present, penalties)
 
-    total = dmarc_enforcement + dkim_alignment + spf_strength + sender_hygiene + monitoring
-    total = max(0, min(100, total))
-
-    auth = max(0, min(50, dmarc_enforcement + dkim_alignment // 2 + spf_strength // 2))
-    transport = max(0, min(40, monitoring))
-    hardening = max(0, min(10, sender_hygiene // 2 + (2 if bimi_present else 0)))
-
+    total = max(0, min(100, auth + transport + hardening))
     tier_level, tier_label = maturity_tier(total)
 
     return {
-        "dmarc_enforcement": dmarc_enforcement,
-        "dkim_alignment": dkim_alignment,
-        "spf_strength": spf_strength,
-        "sender_hygiene": sender_hygiene,
-        "monitoring": monitoring,
+        "dmarc_enforcement": _dmarc_component(dmarc),
+        "dkim_alignment": _dkim_component(dkim),
+        "spf_strength": _spf_component(spf),
+        "sender_hygiene": _sender_hygiene_component(spf),
+        "monitoring": _transport_monitoring_component(dmarc, tlsrpt, mtasts, smtp_starttls_ratio),
         "auth": auth,
         "transport": transport,
         "hardening": hardening,
         "total": total,
         "maturity_tier_level": tier_level,
         "maturity_tier": tier_label,
-        "risk_level_badge": risk_level(total),
+        "risk_level_badge": severity_band(total),
         "penalty_details": penalties,
     }
 
 
-def _dmarc_enforcement_score(dmarc: DMARCAnalysis, penalties: list[str]) -> int:
-    score_value = 0
+def _dmarc_component(dmarc: DMARCAnalysis) -> int:
     if not dmarc.exists:
-        penalties.append("DMARC missing: no anti-spoofing policy published.")
-        return score_value
-
-    policy_map = {"none": 8, "quarantine": 21, "reject": 30}
-    score_value = policy_map.get(dmarc.policy, 8)
-
-    if dmarc.policy == "none":
-        penalties.append("DMARC p=none: monitoring only, no enforcement.")
+        return 0
+    score_value = {"none": 4, "quarantine": 12, "reject": 20}.get(dmarc.policy, 4)
     if dmarc.pct < 100:
-        score_value = max(0, score_value - 4)
-        penalties.append(f"DMARC pct={dmarc.pct}: partial enforcement coverage.")
-    if not dmarc.subdomain_policy:
-        score_value = max(0, score_value - 2)
-        penalties.append("DMARC sp tag missing: subdomains may remain less protected.")
-
-    return min(30, score_value)
-
-
-def _dkim_alignment_score(dkim: DKIMAnalysis, penalties: list[str]) -> int:
-    if dkim.missing:
-        penalties.append("DKIM not detected for common selectors.")
-        return 0
-
-    present = len([selector for selector in dkim.selectors if selector.present])
-    baseline = min(20, present * 5)
-    if "No selectors found" not in dkim.coverage_note:
-        baseline = max(baseline, 15)
-
-    if dkim.weak_selectors:
-        baseline = max(0, baseline - min(10, len(dkim.weak_selectors) * 5))
-        penalties.append("Weak DKIM selectors detected; consider stronger keys and selector rotation.")
-
-    return min(25, baseline + 5)
-
-
-def _spf_strength_score(spf: SPFAnalysis, penalties: list[str]) -> int:
-    if not spf.exists:
-        penalties.append("SPF record missing.")
-        return 0
-
-    score_value = 20
-    if spf.softfail:
-        score_value -= 6
-        penalties.append("SPF uses ~all softfail instead of strict -all.")
-    if not spf.hardfail:
-        score_value -= 4
-    if spf.permerror:
-        score_value -= 8
-        penalties.append("SPF has potential permerror risk from lookup complexity.")
-    if spf.lookup_count > 10:
-        score_value -= 5
-        penalties.append("SPF exceeds DNS lookup best-practice threshold.")
-
+        score_value -= 3
+    if not dmarc.rua_present:
+        score_value -= 2
+    if dmarc.tags.get("adkim", "r") == "r":
+        score_value -= 1
+    if dmarc.tags.get("aspf", "r") == "r":
+        score_value -= 1
     return max(0, min(20, score_value))
 
 
-def _sender_hygiene_score(spf: SPFAnalysis, penalties: list[str]) -> int:
-    score_value = 15
+def _dkim_component(dkim: DKIMAnalysis) -> int:
+    if dkim.missing:
+        return 0
+    present = len([selector for selector in dkim.selectors if selector.present])
+    score_value = min(20, present * 5)
+    if dkim.weak_selectors:
+        score_value -= min(8, len(dkim.weak_selectors) * 4)
+    return max(0, min(20, score_value))
 
-    third_parties = len(spf.third_party_senders)
-    if third_parties > 5:
-        score_value -= 8
-        penalties.append("Excessive third-party sender footprint in SPF include chain.")
-    elif third_parties > 2:
+
+def _spf_component(spf: SPFAnalysis) -> int:
+    if not spf.exists:
+        return 0
+    score_value = 10
+    if spf.hardfail:
+        score_value += 6
+    if spf.softfail:
         score_value -= 4
-
-    hardcoded_ip_count = spf.ip4_count + spf.ip6_count
-    if hardcoded_ip_count > 15:
-        score_value -= 5
-        penalties.append("High number of hardcoded SPF IP ranges indicates hygiene debt.")
-    elif hardcoded_ip_count > 8:
-        score_value -= 3
-
-    return max(0, min(15, score_value))
+    if spf.lookup_count > 10:
+        score_value -= 4
+    return max(0, min(10, score_value))
 
 
-def _monitoring_score(
+def _auth_score(spf: SPFAnalysis, dmarc: DMARCAnalysis, dkim: DKIMAnalysis, penalties: list[str]) -> int:
+    dmarc_score = _dmarc_component(dmarc)
+    dkim_score = _dkim_component(dkim)
+    spf_score = _spf_component(spf)
+
+    if not dmarc.exists:
+        penalties.append("DMARC missing.")
+    if dmarc.policy == "none" and dmarc.pct < 100:
+        penalties.append("DMARC p=none with pct<100 creates a false sense of enforcement.")
+    if not dmarc.rua_present:
+        penalties.append("DMARC rua missing (limited visibility).")
+    if dmarc.tags.get("adkim", "r") == "r" or dmarc.tags.get("aspf", "r") == "r":
+        penalties.append("DMARC relaxed alignment (adkim/aspf=r) is risky for sensitive domains.")
+    if not spf.exists:
+        penalties.append("SPF missing.")
+    if spf.softfail and spf.lookup_count > 10:
+        penalties.append("SPF uses ~all with high lookup pressure (>10 DNS lookups).")
+    if dkim.missing:
+        penalties.append("DKIM not detected.")
+
+    return max(0, min(50, dmarc_score + dkim_score + spf_score))
+
+
+def _transport_monitoring_component(
     dmarc: DMARCAnalysis,
     tlsrpt: TLSRPTAnalysis,
     mtasts: MTASTSAnalysis,
     smtp_starttls_ratio: float,
-    bimi_present: bool,
-    penalties: list[str],
 ) -> int:
     score_value = 10
-
     if not dmarc.reporting_enabled:
-        score_value -= 4
-        penalties.append("DMARC aggregate/forensic reporting not fully configured.")
+        score_value -= 2
     if not tlsrpt.record:
         score_value -= 2
-        penalties.append("TLS-RPT missing: limited transport visibility.")
     if not mtasts.dns_record:
-        score_value -= 2
-        penalties.append("MTA-STS missing: weaker SMTP downgrade resilience.")
+        score_value -= 3
     if smtp_starttls_ratio < 1.0:
-        score_value -= 1
-        penalties.append("STARTTLS not uniformly available across MX hosts.")
-    if bimi_present:
-        score_value += 1
+        score_value -= 3
+    return max(0, min(10, score_value))
 
+
+def _transport_score(
+    dmarc: DMARCAnalysis,
+    tlsrpt: TLSRPTAnalysis,
+    mtasts: MTASTSAnalysis,
+    smtp_starttls_ratio: float,
+    penalties: list[str],
+) -> int:
+    base = 40
+    monitor = _transport_monitoring_component(dmarc, tlsrpt, mtasts, smtp_starttls_ratio)
+    transport = max(0, min(40, base - ((10 - monitor) * 4)))
+
+    if not mtasts.dns_record:
+        penalties.append("MTA-STS missing for mail-enabled domain.")
+    if not tlsrpt.record:
+        penalties.append("TLS-RPT missing (no TLS failure telemetry).")
+    if smtp_starttls_ratio < 1.0:
+        penalties.append("One or more MX endpoints do not support STARTTLS or have probe failures.")
+
+    return transport
+
+
+def _sender_hygiene_component(spf: SPFAnalysis) -> int:
+    score_value = 10
+    if len(spf.third_party_senders) > 5:
+        score_value -= 4
+    if spf.ip4_count + spf.ip6_count > 12:
+        score_value -= 2
+    return max(0, min(10, score_value))
+
+
+def _hardening_score(spf: SPFAnalysis, bimi_present: bool, penalties: list[str]) -> int:
+    score_value = _sender_hygiene_component(spf)
+    if bimi_present:
+        score_value = min(10, score_value + 2)
+    else:
+        penalties.append("BIMI not present (optional brand-hardening control).")
     return max(0, min(10, score_value))
 
 
@@ -166,23 +169,15 @@ def maturity_tier(score_total: int) -> tuple[int, str]:
 
 
 def risk_level(score_total: int) -> str:
-    if score_total <= 20:
-        return "Critical"
-    if score_total <= 40:
-        return "High"
-    if score_total <= 60:
-        return "Moderate"
-    if score_total <= 80:
-        return "Low"
-    return "Hardened"
+    return severity_band(score_total)
 
 
 def severity_band(score_total: int) -> str:
-    if score_total < 40:
+    if score_total < 25:
         return "Critical"
-    if score_total < 60:
+    if score_total < 50:
         return "High"
-    if score_total < 75:
+    if score_total < 70:
         return "Medium"
     if score_total < 90:
         return "Low"

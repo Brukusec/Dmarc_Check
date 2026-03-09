@@ -120,7 +120,7 @@ class AssessmentService:
         tlsrpt = analyze_tlsrpt(dns.tlsrpt)
         bimi = analyze_bimi(dns.bimi)
 
-        findings = build_findings(spf, dmarc, dkim, mtasts, tlsrpt, smtp_starttls_ratio=0.0)
+        findings = build_findings(spf, dmarc, dkim, mtasts, tlsrpt, smtp_starttls_ratio=0.0, smtp_results=[])
         score_map = score(spf, dmarc, dkim, mtasts, tlsrpt, 0.0, bool(bimi["present"]))
 
         evidence = EvidencePack(

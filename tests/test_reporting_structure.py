@@ -20,7 +20,7 @@ def _sample_evidence() -> EvidencePack:
         timestamp=datetime.now(timezone.utc),
         domain="example.com",
         resolver="system",
-        runtime={},
+        runtime={"timeout": 6.0},
         dns=DnsSnapshot(spf=["v=spf1 include:_spf.a ~all"], dmarc=["v=DMARC1; p=none"]),
         spf=SPFAnalysis(
             exists=True,
@@ -35,14 +35,13 @@ def _sample_evidence() -> EvidencePack:
         mtasts=MTASTSAnalysis(),
         tlsrpt=TLSRPTAnalysis(),
         findings=[],
-        score=ScoreBreakdown(total=45, maturity_tier="Tier 3 (Transitional)", risk_level_badge="High"),
+        score=ScoreBreakdown(total=45, auth=20, transport=20, hardening=5, maturity_tier="Tier 3 (Transitional)", risk_level_badge="High"),
     )
 
 
-def test_executive_json_includes_multi_stakeholder_sections() -> None:
+def test_executive_json_includes_requested_reporting_sections() -> None:
     payload = build_executive_json(_sample_evidence())
-    assert "issues" in payload
-    assert len(payload["top_priority_actions"]) >= 5
+    assert "score_breakdown" in payload
+    assert "top_5_risks" in payload
+    assert "technical_appendix" in payload
     assert "stakeholder_views" in payload
-    assert "red_team" in payload["stakeholder_views"]
-    assert "maturity_model" in payload
