@@ -12,6 +12,7 @@ import typer
 from pydantic import ValidationError
 
 from audit import __version__
+from audit.aggregate import write_aggregated_issues_csv, write_full_report
 from audit.bimi import analyze_bimi
 from audit.dkim import analyze_dkim
 from audit.dmarc import analyze_dmarc
@@ -127,10 +128,17 @@ def batch(
         for d in input.read_text(encoding="utf-8").splitlines()
         if d.strip() and not d.startswith("#")
     ]
+    evidences: list[EvidencePack] = []
     for domain in domains:
         evidence = _scan(domain, resolver, timeout, mx_probe)
+        evidences.append(evidence)
         _write_outputs(evidence, out / domain, format)
         typer.echo(f"{domain}: {evidence.score.total}/100")
+
+    if evidences:
+        write_full_report(evidences, out / "full_report.json")
+        write_aggregated_issues_csv(evidences, out / "all_issues.csv")
+        typer.echo("Aggregate outputs written: full_report.json and all_issues.csv")
 
 
 @app.command("diff")
