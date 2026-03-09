@@ -7,7 +7,60 @@ from jinja2 import DictLoader, Environment, FileSystemLoader, select_autoescape
 
 from audit.models import EvidencePack
 
-FALLBACK_REPORT_TEMPLATE = """<!doctype html><html><body><h1>{{ e.report_name }}</h1></body></html>"""
+FALLBACK_REPORT_TEMPLATE = """<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\">
+  <title>{{ e.report_name }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #0f172a; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+    th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; vertical-align: top; }
+    th { background: #e2e8f0; }
+    .meta { color: #475569; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>{{ e.report_name }}</h1>
+  <p class=\"meta\"><strong>Domain:</strong> {{ e.domain }} | <strong>Timestamp:</strong> {{ report_generated }} | <strong>Tool Version:</strong> {{ e.version }} | <strong>Resolver:</strong> {{ e.resolver }}</p>
+  <p class=\"meta\"><strong>Runtime Parameters:</strong> {{ e.runtime }}</p>
+
+  <h2>Executive Summary</h2>
+  <p><strong>Overall Score:</strong> {{ e.score.total }}/100 ({{ e.score.risk_level_badge }})</p>
+  <p><strong>Maturity:</strong> {{ e.score.maturity_tier }}</p>
+
+  <h2>Score Breakdown</h2>
+  <table>
+    <tr><th>Category</th><th>Weight</th><th>Score</th></tr>
+    <tr><td>Auth posture (SPF/DKIM/DMARC)</td><td>50%</td><td>{{ e.score.auth }}/50</td></tr>
+    <tr><td>Transport security (STARTTLS, cert hygiene, MTA-STS, TLS-RPT)</td><td>40%</td><td>{{ e.score.transport }}/40</td></tr>
+    <tr><td>Brand/hardening (BIMI, hygiene)</td><td>10%</td><td>{{ e.score.hardening }}/10</td></tr>
+  </table>
+
+  <h2>Top 5 Risks</h2>
+  <table>
+    <tr><th>#</th><th>Severity</th><th>Description</th></tr>
+    {% for risk in top_5_risks %}
+    <tr><td>{{ loop.index }}</td><td>{{ risk.severity }}</td><td>{{ risk.description }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Findings</h2>
+  <table>
+    <tr><th>ID</th><th>Severity</th><th>Description</th><th>Evidence</th><th>Remediation</th></tr>
+    {% for f in e.findings %}
+    <tr><td>{{ f.id }}</td><td>{{ f.severity }}</td><td>{{ f.description }}</td><td>{{ f.evidence }}</td><td>{{ f.remediation }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <h2>Technical Appendix</h2>
+  <h3>Raw DNS Answers</h3>
+  <pre>{{ e.dns.raw }}</pre>
+  <h3>MX Probe Results</h3>
+  <pre>{{ e.smtp }}</pre>
+</body>
+</html>
+"""
 
 
 def _report_environment() -> Environment:
