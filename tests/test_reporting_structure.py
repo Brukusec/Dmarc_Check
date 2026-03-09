@@ -44,4 +44,6 @@ def test_executive_json_includes_requested_reporting_sections() -> None:
     assert "score_breakdown" in payload
     assert "top_5_risks" in payload
     assert "technical_appendix" in payload
+    assert "mx_records" in payload["technical_appendix"]
+    assert "mx_host_resolution" in payload["technical_appendix"]
     assert "stakeholder_views" in payload

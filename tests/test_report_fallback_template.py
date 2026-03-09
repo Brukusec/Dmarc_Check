@@ -56,3 +56,4 @@ def test_fallback_template_remains_full_report(monkeypatch, tmp_path) -> None:
     assert "Executive Summary" in html
     assert "Score Breakdown" in html
     assert "Technical Appendix" in html
+    assert "MX Records" in html

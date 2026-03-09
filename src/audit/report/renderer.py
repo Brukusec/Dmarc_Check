@@ -54,6 +54,10 @@ FALLBACK_REPORT_TEMPLATE = """<!doctype html>
   </table>
 
   <h2>Technical Appendix</h2>
+  <h3>MX Records</h3>
+  <pre>{{ e.dns.mx }}</pre>
+  <h3>MX Host Resolution</h3>
+  <pre>{{ e.dns.mx_hosts }}</pre>
   <h3>Raw DNS Answers</h3>
   <pre>{{ e.dns.raw }}</pre>
   <h3>MX Probe Results</h3>
@@ -105,6 +109,8 @@ def build_executive_json(evidence: EvidencePack) -> dict:
             "severity_bands": ["Critical", "High", "Medium", "Low", "Info"],
         },
         "technical_appendix": {
+            "mx_records": [row.model_dump() for row in evidence.dns.mx],
+            "mx_host_resolution": [row.model_dump() for row in evidence.dns.mx_hosts],
             "dns_raw": evidence.dns.raw,
             "mx_probe_results": [row.model_dump() for row in evidence.smtp],
         },
